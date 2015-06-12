@@ -21,9 +21,8 @@
 #
 ###########################################################################
 #  Choose your libopus version and your currently-installed iOS SDK version:
-#
 VERSION="1.1"
-SDKVERSION="7.0"
+SDKVERSION="8.3"
 MINIOSVERSION="6.0"
 
 ###########################################################################
@@ -47,7 +46,7 @@ fi
 
 # No need to change this since xcode build will only compile in the
 # necessary bits from the libraries we create
-ARCHS="i386 x86_64 armv7 armv7s arm64"
+ARCHS="armv7 armv7s arm64 x86_64 i386"
 
 DEVELOPER=`xcode-select -print-path`
 #DEVELOPER="/Applications/Xcode.app/Contents/Developer"
@@ -77,14 +76,27 @@ cd $SRCDIR
 # Exit the script if an error happens
 set -e
 
-if [ ! -e "${SRCDIR}/opus-${VERSION}.tar.gz" ]; then
-	echo "Downloading opus-${VERSION}.tar.gz"
-	curl -LO http://downloads.xiph.org/releases/opus/opus-${VERSION}.tar.gz
-fi
-echo "Using opus-${VERSION}.tar.gz"
+#if [ ! -e "${SRCDIR}/opus-${VERSION}.tar.gz" ]; then
+#	echo "Downloading opus-${VERSION}.tar.gz"
+#	curl -LO http://downloads.xiph.org/releases/opus/opus-${VERSION}.tar.gz
+#fi
 
-tar zxf opus-${VERSION}.tar.gz -C $SRCDIR
-cd "${SRCDIR}/opus-${VERSION}"
+if [ ! -d "${SRCDIR}/opus" ]; then
+	echo "Clone git src"
+	git clone git://git.opus-codec.org/opus.git "${SRCDIR}/opus"
+else
+	git pull
+fi
+
+#echo "Using opus-${VERSION}.tar.gz"
+#tar zxf opus-${VERSION}.tar.gz -C $SRCDIR
+#cd "${SRCDIR}/opus-${VERSION}"
+
+cd "${SRCDIR}/opus"
+
+if [ ! -e "${SRCDIR}/opus/configure" ]; then
+./autogen.sh
+fi
 
 set +e # don't bail out of bash script if ccache doesn't exist
 CCACHE=`which ccache`
@@ -110,10 +122,15 @@ do
         EXTRA_CFLAGS="-arch ${ARCH}"
         EXTRA_CONFIG="--host=arm-apple-darwin"
     fi
-
+    
+    if [ "${ARCH}" == "armv7" ] || [ "${ARCH}" == "armv7s" ]; then 
+	EXTRA_CONFIG="--enable-fixed-point ${EXTRA_CONFIG}"
+    else 
+        EXTRA_CONFIG="-enable-float-approx ${EXTRA_CONFIG}"
+    fi
 	mkdir -p "${INTERDIR}/${PLATFORM}${SDKVERSION}-${ARCH}.sdk"
 
-	./configure --disable-shared --enable-static --with-pic --disable-extra-programs --disable-doc ${EXTRA_CONFIG} \
+	./configure  --disable-shared --enable-static --with-pic --disable-extra-programs --disable-doc ${EXTRA_CONFIG} \
     --prefix="${INTERDIR}/${PLATFORM}${SDKVERSION}-${ARCH}.sdk" \
     LDFLAGS="$LDFLAGS ${OPT_LDFLAGS} -fPIE -miphoneos-version-min=${MINIOSVERSION} -L${OUTPUTDIR}/lib" \
     CFLAGS="$CFLAGS ${EXTRA_CFLAGS} ${OPT_CFLAGS} -fPIE -miphoneos-version-min=${MINIOSVERSION} -I${OUTPUTDIR}/include -isysroot ${DEVELOPER}/Platforms/${PLATFORM}.platform/Developer/SDKs/${PLATFORM}${SDKVERSION}.sdk" \
@@ -151,7 +168,7 @@ for OUTPUT_LIB in ${OUTPUT_LIBS}; do
 		lipo -create $INPUT_LIBS \
 		-output "${OUTPUTDIR}/lib/${OUTPUT_LIB}"
 	else
-		echo "$OUTPUT_LIB does not exist, skipping (are the dependencies installed?)"
+		echo "$OUTPUT_LIB does not exist, skipping... Are the dependencies installed?"
 	fi
 done
 
@@ -176,5 +193,5 @@ done
 echo "Building done."
 echo "Cleaning up..."
 rm -fr ${INTERDIR}
-rm -fr "${SRCDIR}/opus-${VERSION}"
+rm -fr "${SRCDIR}/opus"
 echo "Done."
